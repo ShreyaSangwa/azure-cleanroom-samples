@@ -72,6 +72,7 @@ $storageArgs = @(
     "--resource-group", $resourceGroup,
     "--location", $location,
     "--sku", "Standard_LRS",
+    "--min-tls-version", "TLS1_2",
     "--output", "json"
 )
 if ($storageType -eq "adlsgen2") {

@@ -106,7 +106,7 @@ if ($OidcStorageUrl) {
 
     Write-Host "Creating OIDC storage account '$oidcStorageAccountName'..." -ForegroundColor Cyan
     az storage account create --name $oidcStorageAccountName --resource-group $resourceGroup `
-        --location $location --sku Standard_LRS --output none
+        --location $location --sku Standard_LRS --min-tls-version TLS1_2 --output none
 
     az storage blob service-properties update --account-name $oidcStorageAccountName `
         --static-website --auth-mode login --output none
