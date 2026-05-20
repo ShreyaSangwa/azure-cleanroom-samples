@@ -28,7 +28,12 @@ param(
 
     [string]$maaUrl = "https://sharedeus.eus.attest.azure.net",
 
-    [string]$outDir = "./generated"
+    [string]$outDir = "./generated",
+
+    # Optional prefix inside the input dataset's storage container. When set,
+    # the published input dataset is scoped to that folder; when empty (default), 
+    # the dataset maps to the entire container.
+    [string]$subdirectory = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,7 +75,8 @@ function New-DatasetPublishBody {
         [string]$AccessMode,
         [string[]]$AllowedFields,
         [string]$EncMode,
-        [string]$Maa
+        [string]$Maa,
+        [string]$Subdirectory = ""
     )
 
     $body = [ordered]@{
@@ -96,6 +102,10 @@ function New-DatasetPublishBody {
             tenantId  = $Identity.tenantId
             issuerUrl = $IssuerUrl
         }
+    }
+
+    if (-not [string]::IsNullOrEmpty($Subdirectory)) {
+        $body.store.subdirectory = $Subdirectory
     }
 
     if ($EncMode -eq "CPK" -and $Meta.encryption) {
@@ -132,7 +142,7 @@ $inputAllowedFields = if ($persona -eq "northwind") {
 
 $inputBody = New-DatasetPublishBody -Meta $inputMeta -Identity $identityMeta `
     -IssuerUrl $oidcIssuerUrl -AccessMode "read" -AllowedFields $inputAllowedFields `
-    -EncMode $encryptionMode -Maa $maaUrl
+    -EncMode $encryptionMode -Maa $maaUrl -Subdirectory $subdirectory
 
 $inputFile = Join-Path $publishDir "$persona-input-dataset.json"
 $inputBody | ConvertTo-Json -Depth 20 | Out-File -FilePath $inputFile -Encoding utf8

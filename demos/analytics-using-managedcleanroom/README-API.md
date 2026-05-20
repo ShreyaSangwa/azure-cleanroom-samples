@@ -75,6 +75,10 @@ providing your own data and query.
 - [Step 04: Provision Resources & Upload Data](#step-04-provision-resources--upload-data) `[EACH COLLABORATOR]`
 - [Step 05: OIDC Identity & Access](#step-05-oidc-identity--access) `[EACH COLLABORATOR]`
 - [Step 06: Publish Datasets](#step-06-publish-datasets) `[EACH COLLABORATOR]`
+  - [6.1 Build Dataset Body JSON](#61-build-dataset-body-json)
+  - [6.2 Publish Input Dataset](#62-publish-input-dataset)
+  - [6.3 Publish Output Dataset (Woodgrove only)](#63-publish-output-dataset-woodgrove-only)
+  - [6.4 Prepare CPK Keys (CPK mode only)](#64-prepare-cpk-keys-cpk-mode-only)
 - [Step 07: Publish Query](#step-07-publish-query) `[WOODGROVE]`
 - [Step 08: Approve Query](#step-08-approve-query) `[EACH COLLABORATOR]`
 - [Step 09: Execute Query](#step-09-execute-query) `[WOODGROVE]`
@@ -472,8 +476,22 @@ az identity federated-credential list `
 ### 6.1 Build Dataset Body JSON
 
 ```powershell
-./scripts/08-build-dataset-body.ps1 -resourceGroup $personaRg -persona $persona
+if ($persona -eq "woodgrove") {
+    # Scope Woodgrove's input dataset to a sub folder inside its container
+    ./scripts/08-build-dataset-body.ps1 -resourceGroup $personaRg -persona $persona `
+        -subdirectory "2025-09-01"
+} else {
+    # Northwind's input dataset maps to the entire container.
+    ./scripts/08-build-dataset-body.ps1 -resourceGroup $personaRg -persona $persona
+}
 ```
+
+> [!IMPORTANT]
+> The Woodgrove branch above passes `-subdirectory "2025-09-01"` so its input
+> dataset is scoped to a single date folder inside the container. Northwind's
+> input dataset is left at the container root and sees all four days produced
+> by `generate-data.ps1`. For the full parameter reference, see
+> [Optional dataset parameters](#optional-dataset-parameters) in Appendix D.
 
 > **Bring your own data**: If you want to provide your own datasets, upload your data directly to the
 > storage accounts created for your persona and update the `schema` and `accessPolicy` in the dataset
@@ -808,6 +826,12 @@ Runtime:  SKR release → KEK private → unwrap DEK → CPK header → Storage 
 
 Fields not in `allowedFields` are excluded from query access — prevents PII exposure.
 Supported formats: `csv`, `parquet`, `json`.
+
+### Optional dataset parameters
+
+| Parameter | Description |
+|---|---|
+| `subdirectory` | Prefix inside the dataset's container to scope the dataset to a sub folder(e.g. `2025-09-01`). Optional, defaults to `""` (entire container). Pass it via the `-subdirectory` parameter of `scripts/08-build-dataset-body.ps1` — see [Step 6.1](#61-build-dataset-body-json) for the call site. |
 
 ---
 
