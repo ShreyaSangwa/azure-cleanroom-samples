@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using AnalyticsFrontendAPI;
@@ -11,6 +12,8 @@ using Microsoft.Identity.Client;
 
 // --use-msal -> MSAL flow; otherwise DefaultAzureCredential.
 bool useMsal = args.Any(a => string.Equals(a, "--use-msal", StringComparison.OrdinalIgnoreCase));
+// --insecure -> Skip TLS certificate validation (dev/test only).
+bool insecureTls = args.Any(a => string.Equals(a, "--insecure", StringComparison.OrdinalIgnoreCase));
 
 // Frontend base URL (equivalent to $frontend in Invoke-Frontend).
 var endpoint = new Uri(
@@ -31,6 +34,16 @@ TokenCredential credential = useMsal
 
 // Stamps "Authorization: Bearer <token>" on every outgoing request (handles caching + refresh).
 var options = new CollaborationClientOptions();
+
+if (insecureTls)
+{
+    var handler = new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    };
+    options.Transport = new HttpClientTransport(new HttpClient(handler));
+}
+
 options.AddPolicy(
     new BearerTokenAuthenticationPolicy(credential, scope),
     HttpPipelinePosition.PerCall);
@@ -40,7 +53,7 @@ var client = new CollaborationClient(endpoint, options);
 
 Console.WriteLine(
     $"AnalyticsFrontend CollaborationClient initialized for {endpoint} " +
-    $"(auth: {(useMsal ? "MSAL" : "DefaultAzureCredential")}).");
+    $"(auth: {(useMsal ? "MSAL" : "DefaultAzureCredential")}, insecureTls: {insecureTls}).");
 
 try
 {
