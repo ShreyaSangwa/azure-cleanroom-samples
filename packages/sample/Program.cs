@@ -68,14 +68,18 @@ internal static class CliApp
                 ?? Environment.GetEnvironmentVariable("ANALYTICS_FRONTEND_ENDPOINT")
                 ?? "http://localhost:8080");
 
+        var defaultScope = parsed.UseMsal
+            ? "User.Read"
+            : "https://management.azure.com/.default";
+
         var scope = Environment.GetEnvironmentVariable("ANALYTICS_FRONTEND_SCOPE")
-            ?? "https://management.azure.com/.default";
+            ?? defaultScope;
 
         TokenCredential credential = parsed.UseMsal
             ? new MsalTokenCredential(
                 clientId: Environment.GetEnvironmentVariable("AZURE_CLIENT_ID")
                     ?? throw new InvalidOperationException("AZURE_CLIENT_ID must be set when using --use-msal."),
-                tenantId: Environment.GetEnvironmentVariable("AZURE_TENANT_ID") ?? "organizations")
+                tenantId: Environment.GetEnvironmentVariable("AZURE_TENANT_ID") ?? "common")
             : new DefaultAzureCredential();
 
         var options = new CollaborationClientOptions();
@@ -178,15 +182,28 @@ internal static class CliApp
         var help = """
             Azure Cleanroom Analytics Frontend - CLI
 
-            Usage:
-              afe [global-options] <resource> <action> [args...] [options]
+                        Usage:
+                            afe [global-options] <resource> <action> [args...] [options]
+                            afe [global-options] <alias> [args...] [options]
 
-            Global options:
-              --endpoint <url>        Frontend base URL (env: ANALYTICS_FRONTEND_ENDPOINT)
-              --use-msal              Use MSAL interactive auth instead of DefaultAzureCredential
-              --insecure              Skip TLS certificate validation (dev/test only)
-              --body <json|@file>     Request body as inline JSON or @path/to/file.json
-              -h | --help             Show this help
+                        Global options:
+                            --endpoint <url>        Frontend base URL (env: ANALYTICS_FRONTEND_ENDPOINT)
+                            --use-msal              Use MSAL auth (silent + device code) instead of DefaultAzureCredential
+                            --insecure              Skip TLS certificate validation (dev/test only)
+                            --body <json|@file>     Request body as inline JSON or @path/to/file.json
+                            -h | --help             Show this help
+
+                        Alias examples:
+                            collabs-list
+                            collabs-get <collaborationId>
+                            queries-run <collaborationId> <documentId> --body <json|@file>
+                            audit-events-list <collaborationId>
+
+                        Command-flag examples:
+                            --list-collaborations
+                            --get-collaboration <collaborationId>
+                            --run-query <collaborationId> <documentId> --body <json|@file>
+                            --list-audit-events <collaborationId>
 
             Resource/action verbs:
               collaborations list                              [--include-deleted]
@@ -227,9 +244,10 @@ internal static class CliApp
 
             Environment:
               ANALYTICS_FRONTEND_ENDPOINT  Default frontend URL
-              ANALYTICS_FRONTEND_SCOPE     AAD scope (default: https://management.azure.com/.default)
+              ANALYTICS_FRONTEND_SCOPE     AAD scope (default: User.Read with --use-msal, otherwise https://management.azure.com/.default)
               AZURE_CLIENT_ID              Required for --use-msal
-              AZURE_TENANT_ID              Optional for --use-msal (default: organizations)
+              AZURE_TENANT_ID              Optional for --use-msal (default: common)
+              PERSONA                      Optional identifier for MSAL ID token temp file name
             """;
         Console.WriteLine(help);
     }
@@ -237,6 +255,82 @@ internal static class CliApp
 
 internal sealed class CliArgs
 {
+    private sealed record RouteAlias(string Verb, string SubVerb);
+
+    private static readonly Dictionary<string, RouteAlias> AliasMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["collabs-list"] = new("collaborations", "list"),
+        ["collabs-get"] = new("collaborations", "get"),
+        ["collabs-report"] = new("collaborations", "report"),
+
+        ["analytics-get"] = new("analytics", "get"),
+        ["analytics-skr-policy"] = new("analytics", "skr-policy"),
+
+        ["oidc-issuer-info"] = new("oidc", "issuer-info"),
+        ["oidc-set-issuer-url"] = new("oidc", "set-issuer-url"),
+        ["oidc-keys"] = new("oidc", "keys"),
+
+        ["invitations-list"] = new("invitations", "list"),
+        ["invitations-get"] = new("invitations", "get"),
+        ["invitations-accept"] = new("invitations", "accept"),
+
+        ["datasets-list"] = new("datasets", "list"),
+        ["datasets-get"] = new("datasets", "get"),
+        ["datasets-publish"] = new("datasets", "publish"),
+        ["datasets-queries"] = new("datasets", "queries"),
+
+        ["consent-get"] = new("consent", "get"),
+        ["consent-put"] = new("consent", "put"),
+
+        ["queries-list"] = new("queries", "list"),
+        ["queries-get"] = new("queries", "get"),
+        ["queries-publish"] = new("queries", "publish"),
+        ["queries-vote"] = new("queries", "vote"),
+        ["queries-run"] = new("queries", "run"),
+        ["queries-runs"] = new("queries", "runs"),
+
+        ["runs-get"] = new("runs", "get"),
+        ["secrets-put"] = new("secrets", "put"),
+        ["audit-events-list"] = new("audit-events", "list")
+    };
+
+    private static readonly Dictionary<string, RouteAlias> CommandFlagMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["--list-collaborations"] = new("collaborations", "list"),
+        ["--get-collaboration"] = new("collaborations", "get"),
+        ["--report-collaboration"] = new("collaborations", "report"),
+
+        ["--get-analytics"] = new("analytics", "get"),
+        ["--get-analytics-skr-policy"] = new("analytics", "skr-policy"),
+
+        ["--get-oidc-issuer-info"] = new("oidc", "issuer-info"),
+        ["--set-oidc-issuer-url"] = new("oidc", "set-issuer-url"),
+        ["--get-oidc-keys"] = new("oidc", "keys"),
+
+        ["--list-invitations"] = new("invitations", "list"),
+        ["--get-invitation"] = new("invitations", "get"),
+        ["--accept-invitation"] = new("invitations", "accept"),
+
+        ["--list-datasets"] = new("datasets", "list"),
+        ["--get-dataset"] = new("datasets", "get"),
+        ["--publish-dataset"] = new("datasets", "publish"),
+        ["--list-dataset-queries"] = new("datasets", "queries"),
+
+        ["--get-consent"] = new("consent", "get"),
+        ["--put-consent"] = new("consent", "put"),
+
+        ["--list-queries"] = new("queries", "list"),
+        ["--get-query"] = new("queries", "get"),
+        ["--publish-query"] = new("queries", "publish"),
+        ["--vote-query"] = new("queries", "vote"),
+        ["--run-query"] = new("queries", "run"),
+        ["--list-query-runs"] = new("queries", "runs"),
+
+        ["--get-run"] = new("runs", "get"),
+        ["--put-secret"] = new("secrets", "put"),
+        ["--list-audit-events"] = new("audit-events", "list")
+    };
+
     public string? Verb { get; private set; }
     public string? SubVerb { get; private set; }
     public bool UseMsal { get; private set; }
@@ -275,6 +369,13 @@ internal sealed class CliArgs
                 default:
                     if (token.StartsWith("--", StringComparison.Ordinal))
                     {
+                        if (r.Verb is null && TryResolveCommandFlag(token, out var commandFlagRoute))
+                        {
+                            r.Verb = commandFlagRoute.Verb;
+                            r.SubVerb = commandFlagRoute.SubVerb;
+                            break;
+                        }
+
                         // Generic option: --flag value or --flag (boolean)
                         string? value = null;
                         if (i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
@@ -290,7 +391,15 @@ internal sealed class CliArgs
                     }
                     else if (r.Verb is null)
                     {
-                        r.Verb = token;
+                        if (TryResolveAlias(token, out var alias))
+                        {
+                            r.Verb = alias.Verb;
+                            r.SubVerb = alias.SubVerb;
+                        }
+                        else
+                        {
+                            r.Verb = token;
+                        }
                     }
                     else if (r.SubVerb is null)
                     {
@@ -305,6 +414,12 @@ internal sealed class CliArgs
         }
         return r;
     }
+
+    private static bool TryResolveAlias(string token, out RouteAlias alias) =>
+        AliasMap.TryGetValue(token, out alias!);
+
+    private static bool TryResolveCommandFlag(string token, out RouteAlias alias) =>
+        CommandFlagMap.TryGetValue(token, out alias!);
 
     private static string RequireValue(string[] args, ref int i, string token)
     {
@@ -348,14 +463,19 @@ internal sealed class CliArgs
 internal sealed class MsalTokenCredential : TokenCredential
 {
     private readonly IPublicClientApplication _app;
+    private readonly string _persona;
 
-    public MsalTokenCredential(string clientId, string tenantId)
+    public MsalTokenCredential(string clientId, string tenantId, string? persona = null)
     {
         _app = PublicClientApplicationBuilder
             .Create(clientId)
             .WithTenantId(tenantId)
             .WithRedirectUri("http://localhost")
             .Build();
+
+        _persona = string.IsNullOrWhiteSpace(persona)
+            ? Environment.GetEnvironmentVariable("PERSONA") ?? "default"
+            : persona;
     }
 
     public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
@@ -377,11 +497,28 @@ internal sealed class MsalTokenCredential : TokenCredential
         catch (MsalUiRequiredException)
         {
             result = await _app
-                .AcquireTokenInteractive(scopes)
+                .AcquireTokenWithDeviceCode(scopes, challenge =>
+                {
+                    Console.WriteLine(challenge.Message);
+                    return Task.CompletedTask;
+                })
                 .ExecuteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
 
+        PersistIdToken(result.IdToken);
+
         return new AccessToken(result.AccessToken, result.ExpiresOn);
+    }
+
+    private void PersistIdToken(string? idToken)
+    {
+        if (string.IsNullOrWhiteSpace(idToken))
+        {
+            return;
+        }
+
+        var personaTokenFile = Path.Combine(Path.GetTempPath(), $"msal-idtoken-{_persona}.txt");
+        File.WriteAllText(personaTokenFile, idToken, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
 }
