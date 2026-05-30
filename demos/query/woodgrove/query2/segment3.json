@@ -1,0 +1,6 @@
+{
+  "data": "SELECT consumer_view.user_id FROM consumer_view INNER JOIN publisher_view ON consumer_view.hashed_email = publisher_view.hashed_email",
+  "executionSequence": 2,
+  "preConditions": "publisher_view:10000,consumer_view:10000",
+  "postFilters": ""
+}

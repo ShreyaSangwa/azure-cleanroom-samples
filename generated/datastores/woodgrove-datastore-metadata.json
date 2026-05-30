@@ -1,0 +1,44 @@
+{
+  "output": {
+    "containerName": "woodgrove-output-v1",
+    "storeUrl": "https://datasaparkrksileflz.blob.core.windows.net/",
+    "name": "woodgrove-output-csv-v1",
+    "storeId": "/subscriptions/fccb68eb-8ccf-49a6-a69a-7ea3c2867e9c/resourceGroups/cr-e2e-woodgrove-rg/providers/Microsoft.Storage/storageAccounts/datasaparkrksileflz",
+    "schema": {
+      "fields": [
+        {
+          "fieldName": "user_id",
+          "fieldType": "string"
+        }
+      ],
+      "format": "csv"
+    },
+    "encryptionMode": "SSE",
+    "storeType": "Azure_BlobStorage"
+  },
+  "input": {
+    "containerName": "woodgrove-input-v1",
+    "storeUrl": "https://datasaparkrksileflz.blob.core.windows.net/",
+    "name": "woodgrove-input-csv-v1",
+    "storeId": "/subscriptions/fccb68eb-8ccf-49a6-a69a-7ea3c2867e9c/resourceGroups/cr-e2e-woodgrove-rg/providers/Microsoft.Storage/storageAccounts/datasaparkrksileflz",
+    "schema": {
+      "fields": [
+        {
+          "fieldName": "user_id",
+          "fieldType": "string"
+        },
+        {
+          "fieldName": "hashed_email",
+          "fieldType": "string"
+        },
+        {
+          "fieldName": "purchase_history",
+          "fieldType": "string"
+        }
+      ],
+      "format": "csv"
+    },
+    "encryptionMode": "SSE",
+    "storeType": "Azure_BlobStorage"
+  }
+}

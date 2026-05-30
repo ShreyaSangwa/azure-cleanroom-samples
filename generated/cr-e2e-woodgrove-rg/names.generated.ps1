@@ -1,0 +1,7 @@
+$RESOURCE_GROUP = "cr-e2e-woodgrove-rg"
+$RESOURCE_GROUP_LOCATION = "westus"
+$MANAGED_IDENTITY_NAME = "parkrksileflz-mi"
+$STORAGE_ACCOUNT_NAME = "datasaparkrksileflz"
+$KEYVAULT_NAME = "parkrksileflzkv"
+$STORAGE_ACCOUNT_ID = "/subscriptions/fccb68eb-8ccf-49a6-a69a-7ea3c2867e9c/resourceGroups/cr-e2e-woodgrove-rg/providers/Microsoft.Storage/storageAccounts/datasaparkrksileflz"
+$KEYVAULT_ID = "/subscriptions/fccb68eb-8ccf-49a6-a69a-7ea3c2867e9c/resourceGroups/cr-e2e-woodgrove-rg/providers/Microsoft.KeyVault/vaults/parkrksileflzkv"

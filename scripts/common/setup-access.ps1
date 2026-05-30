@@ -32,6 +32,19 @@ if (-not (Test-Path $namesFile)) {
 }
 . $namesFile
 
+# Support both naming styles from generated names files.
+# Some environments emit UPPER_SNAKE_CASE variables.
+if (-not $storageAccountId -and $STORAGE_ACCOUNT_ID) { $storageAccountId = $STORAGE_ACCOUNT_ID }
+if (-not $keyVaultId -and $KEYVAULT_ID) { $keyVaultId = $KEYVAULT_ID }
+
+if (-not $storageAccountId) {
+    throw "storageAccountId is empty. Regenerate '$namesFile' by re-running scripts/04-prepare-resources.ps1."
+}
+
+if ($setupKeyVault -and -not $keyVaultId) {
+    throw "keyVaultId is empty. Regenerate '$namesFile' by re-running scripts/04-prepare-resources.ps1."
+}
+
 $identityJson = az identity show --name $MANAGED_IDENTITY_NAME `
     --resource-group $resourceGroup --output json | ConvertFrom-Json
 

@@ -1,0 +1,1 @@
+SELECT DISTINCT consumer_view.user_id FROM consumer_view INNER JOIN publisher_view ON consumer_view.hashed_email = publisher_view.hashed_email WHERE consumer_view.purchase_history IN ('Sofa', 'Bed', 'Wardrobe', 'Gaming Chair', 'Recliner')

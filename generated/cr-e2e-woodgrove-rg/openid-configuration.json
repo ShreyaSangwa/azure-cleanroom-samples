@@ -1,0 +1,13 @@
+{
+  "id_token_signing_alg_values_supported": [
+    "RS256"
+  ],
+  "issuer": "https://cleanroomoidc.z22.web.core.windows.net/8c23e895-1941-49d8-a096-31b0ec8025ad",
+  "jwks_uri": "https://cleanroomoidc.z22.web.core.windows.net/8c23e895-1941-49d8-a096-31b0ec8025ad/openid/v1/jwks",
+  "subject_types_supported": [
+    "public"
+  ],
+  "response_types_supported": [
+    "id_token"
+  ]
+}

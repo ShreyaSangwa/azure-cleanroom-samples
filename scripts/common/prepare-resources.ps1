@@ -56,16 +56,29 @@ $storageResult = Create-Storage-Resources `
     -storageAccountNames @($storageAccountName) `
     -objectId $callerObjectId
 $storageAccountId = @($storageResult)[0].id
+if (-not $storageAccountId) {
+    # Fallback for cases where create output did not include id.
+    $storageAccountId = az storage account show `
+        --name $storageAccountName `
+        --resource-group $resourceGroup `
+        --query id -o tsv
+}
 
 Write-Host "Creating Key Vault '$keyVaultName'..." -ForegroundColor Cyan
-$keyVaultResult = (az keyvault create `
+$PSNativeCommandUseErrorActionPreference = $false
+$keyVaultRaw = az keyvault create `
     --resource-group $resourceGroup `
     --name $keyVaultName `
     --sku premium `
     --enable-rbac-authorization true `
-    --enable-purge-protection true) | ConvertFrom-Json
+    --enable-purge-protection true 2>$null
+$keyVaultExit = $LASTEXITCODE
+$PSNativeCommandUseErrorActionPreference = $true
 
-if (-not $keyVaultResult) {
+if ($keyVaultExit -eq 0 -and $keyVaultRaw) {
+    $keyVaultResult = $keyVaultRaw | ConvertFrom-Json
+}
+else {
     $keyVaultResult = (az keyvault show --name $keyVaultName --resource-group $resourceGroup) | ConvertFrom-Json
 }
 $keyVaultId = $keyVaultResult.id

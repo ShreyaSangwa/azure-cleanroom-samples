@@ -1,10 +1,16 @@
-# Big Data Analytics — REST API (`az rest` + `Invoke-RestMethod`)
+# Big Data Analytics — SDK CLI (`az rest` + `afe`)
 
-This guide uses **`az rest`** for ARM collaboration operations and
-**`Invoke-RestMethod`** for frontend service operations, with the same helper
-scripts for Azure resource provisioning.
+This guide uses **`az rest`** for ARM collaboration operations and the
+**`afe` SDK CLI** (built from `packages/sample/Program.cs`, wrapping the
+generated `AnalyticsFrontendAPI` SDK) for all frontend service operations.
+The same helper scripts are used for Azure resource provisioning.
 
-For the CLI variant using `az managedcleanroom`, see [README-CLI.md](README-CLI.md).
+The CLI works with **both `az login` (DefaultAzureCredential)** and
+**MSAL device-code (`--use-msal`)** auth — pick whichever fits your account
+type and pass the same arguments.
+
+For the variant using `az managedcleanroom`, see [README-CLI.md](README-CLI.md).
+For the raw REST variant using `Invoke-RestMethod`, see [README_SDK.md](README_SDK.md).
 
 ---
 
@@ -24,7 +30,8 @@ providing your own data and query.
 
 | Aspect | Details |
 |---|---|
-| **API mode** | `az rest` (ARM) + `Invoke-RestMethod` (frontend) |
+| **API mode** | `az rest` (ARM) + `afe` SDK CLI (frontend) |
+| **Auth** | `az login` (default) **or** MSAL device-code (`--use-msal`) |
 | **Data Encryption** | SSE (Microsoft Managed Keys) or [CPK](https://learn.microsoft.com/en-us/azure/storage/common/storage-service-encryption#about-encryption-key-management) (Customer Provided Keys) |
 | **Parties** | Woodgrove (owner / advertiser), Northwind (publisher) |
 | **Data format** | CSV (Parquet and JSON also supported) |
@@ -62,23 +69,16 @@ providing your own data and query.
 - [Overview](#overview)
 - [Step 01: Prerequisites](#step-01-prerequisites) `[ALL]`
   - [1.1 Requirements](#11-requirements)
-  - [1.2 Terminal T1 (Owner) — Variables](#12-terminal-t1-owner--variables)
-  - [1.3 One-Time Owner Setup](#13-one-time-owner-setup)
-  - [1.4 Each Collaborator Terminal — Variables](#14-each-collaborator-terminal--variables)
-  - [1.5 Acquire Token & Extract OID](#15-acquire-token--extract-oid-each-collaborator) `[EACH COLLABORATOR]`
+  - [1.2 Build the SDK CLI](#12-build-the-sdk-cli)
+  - [1.3 Terminal T1 (Owner) — Variables](#13-terminal-t1-owner--variables)
+  - [1.4 One-Time Owner Setup](#14-one-time-owner-setup)
+  - [1.5 Each Collaborator Terminal — Variables & Auth](#15-each-collaborator-terminal--variables--auth) `[EACH COLLABORATOR]`
+  - [1.6 Extract OID for Federated Credentials](#16-extract-oid-for-federated-credentials) `[EACH COLLABORATOR]`
 - [Step 02: Create Collaboration](#step-02-create-collaboration) `[OWNER]`
-  - [2.1 Create Resource Group](#21-create-resource-group)
-  - [2.2 Create Collaboration](#22-create-collaboration)
-  - [2.3 Enable Analytics Workload](#23-enable-analytics-workload)
-  - [2.4 Add More Collaborators (Optional)](#24-add-more-collaborators-optional)
 - [Step 03: Accept Invitations](#step-03-accept-invitations) `[EACH COLLABORATOR]`
 - [Step 04: Provision Resources & Upload Data](#step-04-provision-resources--upload-data) `[EACH COLLABORATOR]`
 - [Step 05: OIDC Identity & Access](#step-05-oidc-identity--access) `[EACH COLLABORATOR]`
 - [Step 06: Publish Datasets](#step-06-publish-datasets) `[EACH COLLABORATOR]`
-  - [6.1 Build Dataset Body JSON](#61-build-dataset-body-json)
-  - [6.2 Publish Input Dataset](#62-publish-input-dataset)
-  - [6.3 Publish Output Dataset (Woodgrove only)](#63-publish-output-dataset-woodgrove-only)
-  - [6.4 Prepare CPK Keys (CPK mode only)](#64-prepare-cpk-keys-cpk-mode-only)
 - [Step 07: Publish Query](#step-07-publish-query) `[WOODGROVE]`
 - [Step 08: Approve Query](#step-08-approve-query) `[EACH COLLABORATOR]`
 - [Step 09: Execute Query](#step-09-execute-query) `[WOODGROVE]`
@@ -90,7 +90,8 @@ providing your own data and query.
 - [Appendix C: CPK Deep Dive](#appendix-c-cpk-deep-dive)
 - [Appendix D: Dataset Schema Reference](#appendix-d-dataset-schema-reference)
 - [Appendix E: Query Structure Reference](#appendix-e-query-structure-reference)
-- [Appendix F: REST API Endpoint Reference](#appendix-f-rest-api-endpoint-reference)
+- [Appendix F: SDK CLI Verb Reference](#appendix-f-sdk-cli-verb-reference)
+- [Appendix G: Collaboration Management](#appendix-g-collaboration-management)
 - [Appendix: App-Based Authentication (SPN)](#appendix-app-based-authentication-spn)
 
 ---
@@ -103,7 +104,8 @@ providing your own data and query.
 |---|---|
 | Azure CLI | 2.75.0+ |
 | PowerShell | 7.x+ |
-| MSAL.PS module | `Install-Module MSAL.PS -Scope CurrentUser -Force` |
+| .NET SDK | 8.0+ (to build the `afe` CLI) |
+| MSAL.PS module | `Install-Module MSAL.PS -Scope CurrentUser -Force` (only for OID extraction in MSAL flow) |
 | azcopy | v10+ (CPK mode only) |
 
 > **Quota check:** This sample deploys an AKS cluster and Confidential ACI
@@ -122,7 +124,31 @@ providing your own data and query.
 
 > The `managedcleanroom` CLI extension is **not required** for this guide.
 
-### 1.2 Terminal T1 (Owner) — Variables
+### 1.2 Build the SDK CLI
+
+The `afe` CLI lives at `packages/sample/Program.cs`. Build it once and bind it
+to a PowerShell alias:
+
+```powershell
+# Run this block in every terminal that will call `afe`.
+# If your terminal starts in C:\Users\...\Downloads\sample, move into the repo first.
+
+dotnet publish .\packages\sample\AnalyticsFrontendSample.csproj -c Release -o .\bin\afe
+$afeExe = (Resolve-Path ".\bin\afe\AnalyticsFrontendSample.exe").Path
+Set-Alias -Scope Global -Name afe -Value $afeExe
+
+# Verify
+afe --help
+```
+
+> `Set-Alias` is terminal-session scoped. If you open a new terminal tab/window,
+> re-run this block in that terminal.
+
+> The same `afe` binary supports both auth modes. Add `--use-msal` for MSAL
+> device-code, omit it to use `DefaultAzureCredential` (which picks up
+> `az login`, environment variables, managed identity, etc.).
+
+### 1.3 Terminal T1 (Owner) — Variables
 
 ```powershell
 az login
@@ -145,7 +171,7 @@ $armApiVersion = "2026-04-30-preview"
 $collabArmUrl = "$armEndpoint/subscriptions/$subscription/resourceGroups/$collabRg/providers/Microsoft.CleanRoom/Collaborations/$collabName"
 ```
 
-### 1.3 One-Time Owner Setup
+### 1.4 One-Time Owner Setup
 
 Register the resource provider (only needed once per subscription):
 
@@ -153,14 +179,9 @@ Register the resource provider (only needed once per subscription):
 az provider register --namespace Microsoft.CleanRoom
 ```
 
-### 1.4 Each Collaborator Terminal — Variables
+### 1.5 Each Collaborator Terminal — Variables & Auth
 
 ```powershell
-az login
-$account = az account show -o json | ConvertFrom-Json
-$subscription = $account.id
-$tenantId = $account.tenantId
-
 $location = "westus"
 $EncryptionMode = "SSE"    # "SSE" or "CPK"
 $iteration = 0
@@ -171,10 +192,104 @@ $personaEmail = "<your-email>"
 
 az group create --name $personaRg --location $location -o none 2>$null
 
+# --- Frontend SDK CLI configuration ----------------------------------------
 $frontend = "https://prod.workload-frontendwestus.cleanroom.cloudapp.azure.net"
-$feApiVersion = "2026-03-01-preview"
-$oidcStorageUrl = "https://cleanroomoidc.z22.web.core.windows.net"   # Required for tenants where Federated Identity Credentials with MI are blocked by policy; specify a whitelisted pre-provisioned storage account name. For other tenants, leave blank ("") and a new storage account will be provisioned by the scripts.
+$oidcStorageUrl = "https://cleanroomoidc.z22.web.core.windows.net"   # Required for tenants where Federated Identity Credentials with MI are blocked by policy. Leave blank ("") otherwise.
+
+# Pick auth mode:
+#   $UseMsal = $true   -> MSAL device-code (external / MSA accounts)
+#   $UseMsal = $false  -> az login / DefaultAzureCredential (corporate accounts)
+$UseMsal = $false
+
+# Common environment for the afe CLI
+$env:ANALYTICS_FRONTEND_ENDPOINT = $frontend
+$env:PERSONA = $persona
+$afeExe = (Resolve-Path "./bin/afe/AnalyticsFrontendSample.exe").Path
+
+if ($UseMsal) {
+    $env:AZURE_CLIENT_ID = "8a3849c1-81c5-4d62-b83e-3bb2bb11251a"
+    $env:AZURE_TENANT_ID = "common"
+} else {
+    az login | Out-Null
+    $account = az account show -o json | ConvertFrom-Json
+    $subscription = $account.id
+    $tenantId     = $account.tenantId
+}
+
+# Helper that wraps the afe CLI for all frontend calls.
+# - Adds --insecure (frontend uses a self-signed cert in dev/test).
+# - Adds --use-msal when the MSAL flow is selected.
+# - Strips the leading "HTTP <status> <reason>" status line from output and
+#   returns the JSON body parsed as a PowerShell object.
+function Invoke-Afe {
+    [CmdletBinding()]
+    param(
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]] $Args
+    )
+
+    $common = @("--insecure", "--endpoint", $env:ANALYTICS_FRONTEND_ENDPOINT)
+    if ($UseMsal) { $common += "--use-msal" }
+
+    $output = & $afeExe @common @Args 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "afe failed (exit $LASTEXITCODE): $($output -join [Environment]::NewLine)"
+    }
+
+    # First line is "HTTP <status> <reason>"; remaining lines are the body.
+    $lines = @($output | ForEach-Object { $_.ToString() })
+    if ($lines.Count -le 1) { return $null }
+
+    $body = ($lines | Select-Object -Skip 1) -join [Environment]::NewLine
+    if (-not $body.Trim()) { return $null }
+
+    try   { return $body | ConvertFrom-Json -Depth 50 }
+    catch { return $body }
+}
 ```
+
+> **First MSAL call**: on the first `Invoke-Afe` call with `$UseMsal = $true`,
+> the CLI prints a device-code prompt — visit the URL, enter the code, and
+> sign in. Subsequent calls reuse the cached token silently. The CLI also
+> persists the ID token to `${env:TEMP}\msal-idtoken-$persona.txt` for OID
+> extraction (see [Step 1.6](#16-extract-oid-for-federated-credentials)).
+
+### 1.6 Extract OID for Federated Credentials
+
+The federated credential subject (Step 05) needs the JWT `oid` claim of the
+calling principal.
+
+**MSAL flow** — make any `Invoke-Afe` call first so the CLI persists the ID
+token, then decode it:
+
+```powershell
+Invoke-Afe collaborations list | Out-Null   # forces token acquisition + persist
+
+$personaTokenFile = Join-Path $env:TEMP "msal-idtoken-$persona.txt"
+$tokenB64 = ((Get-Content $personaTokenFile -Raw).Trim()).Split('.')[1]
+$tokenB64 = $tokenB64.Replace('-', '+').Replace('_', '/')
+$padLen = (4 - $tokenB64.Length % 4) % 4
+$claims = [System.Text.Encoding]::UTF8.GetString(
+    [Convert]::FromBase64String($tokenB64 + ('=' * $padLen))) | ConvertFrom-Json
+$personaOid = $claims.oid
+Write-Host "JWT oid: $personaOid"
+```
+
+**`az login` flow** — decode the ARM access token:
+
+```powershell
+$armToken = az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv
+$tokenB64 = ($armToken.Trim()).Split('.')[1]
+$tokenB64 = $tokenB64.Replace('-', '+').Replace('_', '/')
+$padLen = (4 - $tokenB64.Length % 4) % 4
+$claims = [System.Text.Encoding]::UTF8.GetString(
+    [Convert]::FromBase64String($tokenB64 + ('=' * $padLen))) | ConvertFrom-Json
+$personaOid = $claims.oid
+Write-Host "JWT oid: $personaOid"
+```
+
+> **CRITICAL**: Always use the JWT `oid`, NOT `az ad signed-in-user show --query id`.
+> For MSA accounts these differ. See [Appendix A](#appendix-a-federated-credential-subject-reference).
 
 ---
 
@@ -292,9 +407,7 @@ az rest --method GET --url "$collabArmUrl`?api-version=$armApiVersion" --resourc
 ### 3.1 Get Collaboration UUID
 
 ```powershell
-$raw = dotnet run --project C:\Users\t-ssangwa\Downloads\sample\azure-cleanroom-samples\packages\sample\AnalyticsFrontendSample.csproj --list-collaborations --insecure
-$json = $raw | Select-Object -Last 1
-$collabs = ($json | ConvertFrom-Json).collaborations
+$collabs = (Invoke-Afe collaborations list).collaborations
 $collabs | Format-Table @{L='#';E={[array]::IndexOf($collabs,$_)+1}}, collaborationName, collaborationId, userStatus
 
 $choice = Read-Host "Enter the number of your collaboration"
@@ -305,16 +418,21 @@ Write-Host "Selected: $collabId"
 ### 3.2 Accept Invitation
 
 ```powershell
-$raw = dotnet run --project .\packages\sample\AnalyticsFrontendSample.csproj -- --endpoint $frontend invitations list $collabId --insecure
-$json = $raw | Select-Object -Last 1
-$invitations = ($json | ConvertFrom-Json).invitations
+$invitations = (Invoke-Afe invitations list $collabId).invitations
+$invitations | Format-Table invitationId, accountType, status
 
 if (-not $invitations -or $invitations.Count -eq 0) {
-Write-Host "No pending invitations for this account/collaboration. Skip accept."
-} else {
-$invitations | Format-Table invitationId, accountType, status
-$invitationId = $invitations[0].invitationId
-dotnet run --project .\packages\sample\AnalyticsFrontendSample.csproj -- --endpoint $frontend invitations accept $collabId $invitationId --insecure
+    Write-Host "No invitations found for this collaboration (already accepted or none pending)."
+}
+else {
+    $pending = @($invitations | Where-Object { $_.status -eq "Pending" })
+    if ($pending.Count -eq 0) {
+        Write-Host "No pending invitations to accept."
+    }
+    else {
+        $invitationId = $pending[0].invitationId
+        Invoke-Afe invitations accept $collabId $invitationId
+    }
 }
 ```
 
@@ -376,7 +494,7 @@ $variant = if ($EncryptionMode -eq "CPK") { "cpk" } else { "sse" }
 $jwksDir = "generated/$personaRg"
 New-Item -ItemType Directory -Path $jwksDir -Force | Out-Null
 
-$jwks = Invoke-Frontend -Path "$collabId/oidc/keys" -Method GET
+$jwks = Invoke-Afe oidc keys $collabId
 $jwks | ConvertTo-Json -Depth 10 | Out-File "$jwksDir/jwks.json" -Encoding utf8
 ```
 
@@ -399,8 +517,8 @@ if ($oidcStorageUrl) { $oidcParams["OidcStorageUrl"] = $oidcStorageUrl }
 ```powershell
 $issuerUrl = (Get-Content "generated/$personaRg/issuer-url.txt" -Raw).Trim()
 
-Invoke-Frontend -Path "$collabId/oidc/setIssuerUrl" -Method POST `
-    -Body @{ url = $issuerUrl }
+$issuerBody = @{ url = $issuerUrl } | ConvertTo-Json -Compress
+Invoke-Afe oidc set-issuer-url $collabId --body $issuerBody
 ```
 
 ### 5.4 Grant Access & Create Federated Credentials
@@ -412,7 +530,7 @@ Invoke-Frontend -Path "$collabId/oidc/setIssuerUrl" -Method POST `
 ```
 
 > **CRITICAL**: `contractId` must be `"Analytics"` (capital A). `-userId` must be
-> the JWT `oid` from Step 01.4.
+> the JWT `oid` from Step 1.6.
 
 **Verify**:
 ```powershell
@@ -455,28 +573,30 @@ if ($persona -eq "woodgrove") {
 
 ### 6.2 Publish Input Dataset
 
-```powershell
-$inputBody = Get-Content "generated/publish/$persona-input-dataset.json" -Raw
+The CLI accepts request bodies via `--body @path/to/file.json`:
 
-Invoke-Frontend -Path "$collabId/analytics/datasets/$persona-input-csv$suffix/publish" `
-    -Method POST -Body $inputBody
+```powershell
+$inputDoc  = "$persona-input-csv$suffix"
+$inputFile = "generated/publish/$persona-input-dataset.json"
+
+Invoke-Afe datasets publish $collabId $inputDoc --body "@$inputFile"
 ```
 
 ### 6.3 Publish Output Dataset (Woodgrove only)
 
 ```powershell
 if ($persona -eq "woodgrove") {
-    $outputBody = Get-Content "generated/publish/woodgrove-output-dataset.json" -Raw
+    $outputDoc  = "woodgrove-output-csv$suffix"
+    $outputFile = "generated/publish/woodgrove-output-dataset.json"
 
-    Invoke-Frontend -Path "$collabId/analytics/datasets/woodgrove-output-csv$suffix/publish" `
-        -Method POST -Body $outputBody
+    Invoke-Afe datasets publish $collabId $outputDoc --body "@$outputFile"
 }
 ```
 
 > Execution consent is enabled by default at publish time. To revoke or re-enable later:
 > ```powershell
-> Invoke-Frontend -Path "$collabId/consent/<document-name>" `
->     -Method PUT -Body @{ consentAction = "disable" }   # or "enable"
+> $consentBody = @{ consentAction = "disable" } | ConvertTo-Json -Compress   # or "enable"
+> Invoke-Afe consent put $collabId "<document-name>" --body $consentBody
 > ```
 
 ### 6.4 Prepare CPK Keys (CPK mode only)
@@ -490,15 +610,19 @@ if ($persona -eq "woodgrove") {
 
 ```powershell
 if ($EncryptionMode -eq "CPK") {
+    # Fetch SKR policy via the SDK CLI and pass it to the script.
+    $skrPolicy = Invoke-Afe analytics skr-policy $collabId "<kid>"
+    $skrPolicy | ConvertTo-Json -Depth 20 | Out-File "generated/$personaRg/skr-policy.json" -Encoding utf8
+
     ./scripts/08-prepare-dataset-keys.ps1 -collaborationId $collabId `
         -resourceGroup $personaRg -persona $persona `
-        -frontendEndpoint $frontend -TokenFile $personaTokenFile
+        -SkrPolicyFile "generated/$personaRg/skr-policy.json"
 }
 ```
 
 **Verify**:
 ```powershell
-Invoke-Frontend -Path "$collabId/analytics/datasets/$persona-input-csv$suffix" | ConvertTo-Json -Depth 10
+Invoke-Afe datasets get $collabId "$persona-input-csv$suffix" | ConvertTo-Json -Depth 10
 ```
 
 ---
@@ -523,7 +647,7 @@ Invoke-Frontend -Path "$collabId/analytics/datasets/$persona-input-csv$suffix" |
 
 > Get Northwind's exact dataset name (Northwind's suffix may differ from yours):
 > ```powershell
-> $datasets = Invoke-Frontend -Path "$collabId/analytics/datasets" -Method GET
+> $datasets = Invoke-Afe datasets list $collabId
 > $datasets.datasets | Where-Object { $_.id -match "northwind" } | ForEach-Object { Write-Host $_.id }
 > ```
 
@@ -542,10 +666,7 @@ $queryName = "query2$suffix"   # Update queryName for multi-collaborator
 ### 7.2 Publish Query
 
 ```powershell
-$queryBody = Get-Content "generated/publish/$queryName.json" -Raw
-
-Invoke-Frontend -Path "$collabId/analytics/queries/$queryName/publish" `
-    -Method POST -Body $queryBody
+Invoke-Afe queries publish $collabId $queryName --body "@generated/publish/$queryName.json"
 ```
 
 ---
@@ -561,20 +682,19 @@ Each collaborator runs in their own terminal:
 
 ```powershell
 # View query and get proposal ID
-$queryInfo = Invoke-Frontend -Path "$collabId/analytics/queries/$queryName"
+$queryInfo = Invoke-Afe queries get $collabId $queryName
 $queryInfo.data.queryData | Format-Table executionSequence, preConditions, postFilters, data -Wrap
 $proposalId = $queryInfo.proposalId
 Write-Host "Proposal ID: $proposalId"
 
 # Vote
-Invoke-Frontend -Path "$collabId/analytics/queries/$queryName/vote" `
-    -Method POST -Body @{ voteAction = "accept"; proposalId = $proposalId }
+$voteBody = @{ voteAction = "accept"; proposalId = $proposalId } | ConvertTo-Json -Compress
+Invoke-Afe queries vote $collabId $queryName --body $voteBody
 ```
 
 > **Northwind**: If you don't have `$queryName`, list published queries and set it:
 > ```powershell
-> $queries = Invoke-Frontend -Path "$collabId/analytics/queries" -Method GET
-> $queries | ConvertTo-Json -Depth 5
+> Invoke-Afe queries list $collabId | ConvertTo-Json -Depth 5
 >
 > $queryName = "<query-name-from-list>"   # e.g., "query2-v1"
 > ```
@@ -582,7 +702,7 @@ Invoke-Frontend -Path "$collabId/analytics/queries/$queryName/vote" `
 **Verify**: Query state should be `"Accepted"` after all required votes.
 
 ```powershell
-$state = (Invoke-Frontend -Path "$collabId/analytics/queries/$queryName").state
+$state = (Invoke-Afe queries get $collabId $queryName).state
 Write-Host "Query state: $state"
 ```
 
@@ -591,9 +711,8 @@ Write-Host "Query state: $state"
 ## Step 09: Execute Query `[WOODGROVE]`
 
 ```powershell
-$runBody = @{ runId = [guid]::NewGuid().ToString() }
-$runResult = Invoke-Frontend -Path "$collabId/analytics/queries/$queryName/run" `
-    -Method POST -Body $runBody
+$runBody = @{ runId = [guid]::NewGuid().ToString() } | ConvertTo-Json -Compress
+$runResult = Invoke-Afe queries run $collabId $queryName --body $runBody
 
 $jobId = $runResult.id
 Write-Host "Job ID: $jobId"
@@ -610,9 +729,12 @@ Write-Host "Job ID: $jobId"
 > pass `startDate` and `endDate` in the request body:
 >
 > ```powershell
-> $runBody = @{ runId = [guid]::NewGuid().ToString(); startDate = "2025-09-01"; endDate = "2025-09-02" }
-> $runResult = Invoke-Frontend -Path "$collabId/analytics/queries/$queryName/run" `
->     -Method POST -Body $runBody
+> $runBody = @{
+>     runId     = [guid]::NewGuid().ToString()
+>     startDate = "2025-09-01"
+>     endDate   = "2025-09-02"
+> } | ConvertTo-Json -Compress
+> $runResult = Invoke-Afe queries run $collabId $queryName --body $runBody
 > ```
 
 ---
@@ -621,7 +743,7 @@ Write-Host "Job ID: $jobId"
 
 ```powershell
 do {
-    $result = Invoke-Frontend -Path "$collabId/analytics/runs/$jobId"
+    $result = Invoke-Afe runs get $collabId $jobId
     $state = $result.status.applicationState.state
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] State: $state"
     Start-Sleep -Seconds 30
@@ -662,8 +784,7 @@ $result | ConvertTo-Json -Depth 10
 ### 11.1 Run History
 
 ```powershell
-$history = Invoke-Frontend -Path "$collabId/analytics/queries/$queryName/runs"
-$history | ConvertTo-Json -Depth 10
+Invoke-Afe queries runs $collabId $queryName | ConvertTo-Json -Depth 10
 ```
 
 > The output includes execution stats such as **total rows read**, **total rows written**, and **duration** of the query.
@@ -671,8 +792,13 @@ $history | ConvertTo-Json -Depth 10
 ### 11.2 Audit Events
 
 ```powershell
-$audit = Invoke-Frontend -Path "$collabId/analytics/auditevents"
-$audit | ConvertTo-Json -Depth 10
+# All events
+Invoke-Afe audit-events list $collabId | ConvertTo-Json -Depth 10
+
+# Filtered (any subset of --from / --to / --type)
+Invoke-Afe audit-events list $collabId `
+    --from "2025-09-01T00:00:00Z" --to "2025-09-30T23:59:59Z" `
+    --type "QueryExecution" | ConvertTo-Json -Depth 10
 ```
 
 ### 11.3 Download Output
@@ -698,7 +824,7 @@ Auto-detects SSE/CPK mode from metadata. Pass `-JobId` to filter to a specific r
 ```powershell
 $kc = az rest --method POST `
     --url "$collabArmUrl/getReadonlyKubeConfig`?api-version=$armApiVersion" `
-    --resource $armResource -o json | ConvertFrom-Json
+    --resource $armEndpoint -o json | ConvertFrom-Json
 
 $bytes = [Convert]::FromBase64String($kc.kubeconfig)
 [System.Text.Encoding]::UTF8.GetString($bytes) |
@@ -710,7 +836,7 @@ $bytes = [Convert]::FromBase64String($kc.kubeconfig)
 Retrieves admin credentials, opens the browser, and port-forwards to Grafana.
 
 ```powershell
-./demos/analytics-using-managedcleanroom/scripts/12-open-grafana-dashboard.ps1 -KubeConfigPath "./readonly.kubeconfig"
+./scripts/12-open-grafana-dashboard.ps1 -KubeConfigPath "./readonly.kubeconfig"
 ```
 
 Login with `admin` and the password printed by the script.
@@ -720,7 +846,7 @@ Login with `admin` and the password printed by the script.
 ## Appendix A: Federated Credential Subject Reference
 
 Format: `{contractId}-{ownerId}` where `contractId` = `"Analytics"` (capital A)
-and `ownerId` = JWT `oid` from Step 01.4.
+and `ownerId` = JWT `oid` from Step 1.6.
 
 MSA accounts: JWT `oid` ≠ `az ad signed-in-user show --query id`. Always use JWT `oid`.
 
@@ -743,11 +869,13 @@ az identity federated-credential create --name "Analytics-$personaOid-federation
 |---|---|---|
 | `SPARK_JOB_FAILED: ExitCode 1` | Federated credential subject mismatch | See [Appendix A](#appendix-a-federated-credential-subject-reference) |
 | `AADSTS700211: No matching federated identity record` | Wrong issuer URL or stale FIC | Republish dataset; delete/recreate FIC |
-| `SSL certificate verify failed` | Endpoint cert mismatch | Use `-SkipCertificateCheck` on `Invoke-RestMethod` |
-| `404 Not Found` on frontend | Using ARM resource ID instead of frontend UUID | Use UUID from `Invoke-Frontend -Path ""` |
+| `SSL certificate verify failed` | Endpoint cert mismatch | The CLI is invoked with `--insecure` in `Invoke-Afe` for dev/test; do not use this in production |
+| `404 Not Found` on frontend | Using ARM resource ID instead of frontend UUID | Use UUID from `Invoke-Afe collaborations list` |
 | `ContractNotFound` | Stale CCF endpoint | Create new collaboration |
 | `Already voted / Conflict` | Idempotent vote | Safe to ignore |
 | `PENDING_RERUN` | Normal scheduling | Keep polling |
+| `AZURE_CLIENT_ID must be set when using --use-msal.` | MSAL flow but env var missing | Set `$env:AZURE_CLIENT_ID` before calling `Invoke-Afe` |
+| `afe: command not found` | CLI not on `PATH` | Re-run [Step 1.2](#12-build-the-sdk-cli) |
 
 ---
 
@@ -808,9 +936,62 @@ Both are defined in the query segments. Edit the thresholds before publishing th
 
 ---
 
-## Appendix F: REST API Endpoint Reference
+## Appendix F: SDK CLI Verb Reference
 
-### ARM API (via `az rest`)
+The `afe` CLI is defined in `packages/sample/Program.cs`. It wraps the
+generated `AnalyticsFrontendAPI` SDK (`CollaborationClient`) and exposes a
+verb / sub-verb command structure.
+
+### Global options
+
+| Option | Effect | Env var |
+|---|---|---|
+| `--endpoint <url>` | Frontend base URL | `ANALYTICS_FRONTEND_ENDPOINT` |
+| `--use-msal` | Use MSAL device-code auth instead of `DefaultAzureCredential` | — |
+| `--insecure` | Skip TLS validation (dev/test only) | — |
+| `--body <json\|@file>` | Inline JSON or `@path` to a JSON file | — |
+| `-h`, `--help` | Show help | — |
+| — | MSAL client ID (required when `--use-msal`) | `AZURE_CLIENT_ID` |
+| — | MSAL tenant (default `common`) | `AZURE_TENANT_ID` |
+| — | Persona label for ID-token temp file | `PERSONA` |
+| — | AAD scope override | `ANALYTICS_FRONTEND_SCOPE` |
+
+### Verb / sub-verb table
+
+| Verb | Sub-verb | Args | Notes |
+|---|---|---|---|
+| `collaborations` | `list` | — | Optional `--include-deleted` |
+| `collaborations` | `get` | `<collaborationId>` | Optional `--include-deleted` |
+| `collaborations` | `report` | `<collaborationId>` | |
+| `analytics` | `get` | `<collaborationId>` | |
+| `analytics` | `skr-policy` | `<collaborationId> <kid>` | |
+| `oidc` | `issuer-info` | `<collaborationId>` | |
+| `oidc` | `set-issuer-url` | `<collaborationId>` | `--body` required |
+| `oidc` | `keys` | `<collaborationId>` | |
+| `invitations` | `list` | `<collaborationId>` | Optional `--include-deleted` |
+| `invitations` | `get` | `<collaborationId> <invitationId>` | |
+| `invitations` | `accept` | `<collaborationId> <invitationId>` | |
+| `datasets` | `list` | `<collaborationId>` | |
+| `datasets` | `get` | `<collaborationId> <documentId>` | |
+| `datasets` | `publish` | `<collaborationId> <documentId>` | `--body` required |
+| `datasets` | `queries` | `<collaborationId> <documentId>` | |
+| `consent` | `get` | `<collaborationId> <documentId>` | |
+| `consent` | `put` | `<collaborationId> <documentId>` | `--body` required |
+| `queries` | `list` | `<collaborationId>` | |
+| `queries` | `get` | `<collaborationId> <documentId>` | |
+| `queries` | `publish` | `<collaborationId> <documentId>` | `--body` required |
+| `queries` | `vote` | `<collaborationId> <documentId>` | `--body` required |
+| `queries` | `run` | `<collaborationId> <documentId>` | `--body` required |
+| `queries` | `runs` | `<collaborationId> <documentId>` | |
+| `runs` | `get` | `<collaborationId> <jobId>` | |
+| `secrets` | `put` | `<collaborationId> <secretName>` | `--body` required |
+| `audit-events` | `list` | `<collaborationId>` | Optional `--from`, `--to`, `--type` |
+
+Aliases (`collabs-list`, `queries-run`, …) and command flags
+(`--list-collaborations`, `--run-query`, …) map to the same verbs — see
+`afe --help` for the full list.
+
+### ARM API (still via `az rest`)
 
 Base: `https://management.azure.com`
 API version: `2026-04-30-preview`
@@ -822,29 +1003,6 @@ API version: `2026-04-30-preview`
 | Enable workload | POST | `.../Collaborations/{name}/enableWorkload` |
 | Add collaborator | POST | `.../Collaborations/{name}/addCollaborator` |
 | Get readonly kubeconfig | POST | `.../Collaborations/{name}/getReadonlyKubeConfig` |
-
-### Frontend API (via `Invoke-RestMethod`)
-
-Base: `{frontendEndpoint}/collaborations`
-API version: `2026-03-01-preview`
-
-| Operation | Method | Path |
-|---|---|---|
-| List collaborations | GET | `/` |
-| List invitations | GET | `/{id}/invitations` |
-| Accept invitation | POST | `/{id}/invitations/{invId}/accept` |
-| OIDC keys | GET | `/{id}/oidc/keys` |
-| Set issuer URL | POST | `/{id}/oidc/setIssuerUrl` |
-| Publish dataset | POST | `/{id}/analytics/datasets/{docId}/publish` |
-| Show dataset | GET | `/{id}/analytics/datasets/{docId}` |
-| Set consent | PUT | `/{id}/consent/{docId}` |
-| Publish query | POST | `/{id}/analytics/queries/{docId}/publish` |
-| Show query | GET | `/{id}/analytics/queries/{docId}` |
-| Vote on query | POST | `/{id}/analytics/queries/{docId}/vote` |
-| Run query | POST | `/{id}/analytics/queries/{docId}/run` |
-| Run result | GET | `/{id}/analytics/runs/{jobId}` |
-| Run history | GET | `/{id}/analytics/queries/{docId}/runs` |
-| Audit events | GET | `/{id}/analytics/auditevents` |
 
 ---
 
@@ -882,23 +1040,35 @@ az rest --method DELETE `
 ## Appendix: App-Based Authentication (SPN)
 
 For CI/CD automation, service principals can replace interactive user login.
+The SDK CLI picks SPN credentials up automatically through
+`DefaultAzureCredential` when the standard env vars are set — no `--use-msal`
+needed.
 
 ### Prerequisites
 
 | Requirement | Details |
 |---|---|
-| Python 3 + `msal` + `cryptography` | `pip install msal cryptography` |
+| Python 3 + `msal` + `cryptography` | `pip install msal cryptography` (only needed for SNI cert flow) |
 | App registration | With `serviceManagementReference` in MSFT tenant |
 | OneCert certificate | Issued by integrated CA in a KV with OneCert issuer |
 | `trustedCertificateSubjects` | Set in app manifest via Azure Portal |
 
 ### Token Acquisition
 
+For interactive testing, sign in once and let `DefaultAzureCredential` use the
+session:
+
 ```powershell
-# Use get-sp-token-sni.ps1 for MSAL SNI (x5c) auth
-$token = ./scripts/common/get-sp-token-sni.ps1 `
-    -appId "<clientAppId>" -tenantId "<tenantId>" -certPemPath "<cert.pem>"
-$env:CLEANROOM_FRONTEND_TOKEN = $token
+az login --service-principal -u <clientAppId> -p <cert.pem> --tenant <tenantId>
+# Subsequent Invoke-Afe calls (with $UseMsal = $false) will use the SPN.
+```
+
+For automated pipelines, set the env vars consumed by `DefaultAzureCredential`:
+
+```powershell
+$env:AZURE_CLIENT_ID       = "<clientAppId>"
+$env:AZURE_TENANT_ID       = "<tenantId>"
+$env:AZURE_CLIENT_CERTIFICATE_PATH = "<cert.pem>"   # or AZURE_CLIENT_SECRET
 ```
 
 ### Add SPN as Collaborator
