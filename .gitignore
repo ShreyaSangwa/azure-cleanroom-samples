@@ -396,3 +396,8 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Azure Clean Room runtime artifacts
+generated/
+readonly.kubeconfig
+body.json
