@@ -1,16 +1,19 @@
-# Big Data Analytics — SDK CLI (`az rest` + `afe`)
+# Big Data Analytics — SDK CLI (`cleanroom-mgmt` + `afe`)
 
-This guide uses **`az rest`** for ARM collaboration operations and the
-**`afe` SDK CLI** (built from `packages/sample/Program.cs`, wrapping the
-generated `AnalyticsFrontendAPI` SDK) for all frontend service operations.
-The same helper scripts are used for Azure resource provisioning.
+This guide uses the **`cleanroom-mgmt` SDK CLI** (built from
+`packages/mgmt-sample/Program.cs`, wrapping the generated
+`Azure.ResourceManager.CleanRoom` management-plane SDK) for ARM collaboration
+operations, and the **`afe` SDK CLI** (built from `packages/sample/Program.cs`,
+wrapping the generated `AnalyticsFrontendAPI` SDK) for all frontend service
+operations. The same helper scripts are used for Azure resource provisioning.
 
-The CLI works with **both `az login` (DefaultAzureCredential)** and
-**MSAL device-code (`--use-msal`)** auth — pick whichever fits your account
-type and pass the same arguments.
+The **`cleanroom-mgmt`** CLI uses **`az login` (DefaultAzureCredential)** only —
+ARM management-plane operations rely on the Azure CLI / managed-identity / SPN
+chain. The **`afe`** CLI (frontend) supports both `az login` and MSAL
+device-code (`--use-msal`) for accounts that need it.
 
 For the overall sample and entry points, see [README.md](README.md).
-For this `az rest` + `afe` flow, continue with this guide.
+For the `cleanroom-mgmt` + `afe` flow, continue with this guide.
 
 ---
 
@@ -30,8 +33,8 @@ providing your own data and query.
 
 | Aspect | Details |
 |---|---|
-| **API mode** | `az rest` (ARM) + `afe` SDK CLI (frontend) |
-| **Auth** | `az login` (default) **or** MSAL device-code (`--use-msal`) |
+| **API mode** | `cleanroom-mgmt` SDK CLI (ARM) + `afe` SDK CLI (frontend) |
+| **Auth** | `cleanroom-mgmt`: `az login` only · `afe`: `az login` **or** MSAL device-code (`--use-msal`) |
 | **Data Encryption** | SSE (Microsoft Managed Keys) or [CPK](https://learn.microsoft.com/en-us/azure/storage/common/storage-service-encryption#about-encryption-key-management) (Customer Provided Keys) |
 | **Parties** | Woodgrove (owner / advertiser), Northwind (publisher) |
 | **Data format** | CSV (Parquet and JSON also supported) |
@@ -124,24 +127,35 @@ providing your own data and query.
 
 > The `managedcleanroom` CLI extension is **not required** for this guide.
 
-### 1.2 Prepare the SDK CLI Command
+### 1.2 Prepare the SDK CLI Commands
 
-The `afe` CLI lives at `packages/sample/Program.cs`. In this guide, run it via
-`dotnet run` directly from the project:
+Two CLIs are used in this guide:
+
+- `cleanroom-mgmt` — ARM management-plane operations
+  (`packages/mgmt-sample/Program.cs`).
+- `afe` — frontend / data-plane operations
+  (`packages/sample/Program.cs`).
+
+Run them via `dotnet run` directly from each project:
 
 ```powershell
-# Run this block in every terminal that will call the SDK CLI.
+# Run this block in every terminal that will call the SDK CLIs.
 # If your terminal starts in C:\Users\...\Downloads\sample, move into the repo first.
 
+dotnet restore .\packages\mgmt-sample\CleanRoomMgmtSample.csproj
 dotnet restore .\packages\sample\AnalyticsFrontendSample.csproj
 
 # Verify
+dotnet run --project .\packages\mgmt-sample\CleanRoomMgmtSample.csproj -- --help
 dotnet run --project .\packages\sample\AnalyticsFrontendSample.csproj -- --help
 ```
 
-> The same CLI supports both auth modes. Add `--use-msal` for MSAL
+> The `afe` CLI supports both auth modes — add `--use-msal` for MSAL
 > device-code, omit it to use `DefaultAzureCredential` (which picks up
 > `az login`, environment variables, managed identity, etc.).
+>
+> The `cleanroom-mgmt` CLI uses `DefaultAzureCredential` only — sign in with
+> `az login` (or use the standard SPN / managed-identity env vars).
 
 ### 1.3 Terminal T1 (Owner) — Variables
 
@@ -160,11 +174,19 @@ $resourceLocation = "westus"   # Location where AKS, Container Groups, and all r
 $collabName = "<collaboration-name>"
 $collabRg = "<collaboration-resource-group>"
 
-# ARM API
-$armEndpoint = "https://management.azure.com"
-$armApiVersion = "2026-04-30-preview"
-$collabArmUrl = "$armEndpoint/subscriptions/$subscription/resourceGroups/$collabRg/providers/Microsoft.CleanRoom/Collaborations/$collabName"
+# Project paths
+$mgmtProject = ".\packages\mgmt-sample\CleanRoomMgmtSample.csproj"
+$afeProject  = ".\packages\sample\AnalyticsFrontendSample.csproj"
+
+# Make subscription / resource group available to cleanroom-mgmt
+# so we don't have to pass them on every invocation.
+$env:AZURE_SUBSCRIPTION_ID = $subscription
+$env:AZURE_RESOURCE_GROUP  = $collabRg
 ```
+
+> Add `--use-msal` to any `afe` command below if you need MSAL device-code
+> auth. The `cleanroom-mgmt` CLI does not accept `--use-msal` — it always
+> uses `az login` / `DefaultAzureCredential`.
 
 ### 1.4 One-Time Owner Setup
 
@@ -273,33 +295,29 @@ az group create --name $collabRg --location $rpLocation -o none
 
 ```powershell
 $collaboratorEmail = "<woodgrove-email>"
-$collaboratorEmail = "<woodgrove-email>"
-$createBody = @{
-    location = $rpLocation
-    properties = @{
-        collaborators = @(@{ userIdentifier = $collaboratorEmail })
-        resourceLocation = $resourceLocation
-    }
-} | ConvertTo-Json -Depth 5
-[System.IO.File]::WriteAllText("$PWD/body.json", $createBody)
-az rest --method PUT `
-    --url "$collabArmUrl`?api-version=$armApiVersion" `
-    --resource $armEndpoint `
-    --headers "Content-Type=application/json" `
-    --body "@body.json"
+
+dotnet run --project $mgmtProject -- collaborations create `
+    $collabName `
+    --location $rpLocation `
+    --resource-location $resourceLocation `
+    --collaborator $collaboratorEmail
 ```
 
-> The `collaborators` array adds collaborators at creation time itself.
-> To add more collaborators later, see [Step 2.4](#24-add-more-collaborators-optional).
+> `--collaborator` may be repeated to add multiple collaborators at creation
+> time. To add more collaborators later, see
+> [Step 2.4](#24-add-more-collaborators-optional).
 
-> **NOTE**: `location` is the ARM RP location (`$rpLocation`). `resourceLocation` controls where
-> actual resources (AKS cluster, CACI instances) are deployed — set via `$resourceLocation`.
+> **NOTE**: `--location` is the ARM RP location (`$rpLocation`).
+> `--resource-location` controls where actual resources (AKS cluster, CACI
+> instances) are deployed.
 
-**Runtime**: ~25 minutes. Poll `provisioningState` until `Succeeded`:
+**Runtime**: ~25 minutes. The CLI awaits the long-running operation and
+prints the final resource. To poll explicitly while it runs (separate
+terminal):
 
 ```powershell
 do {
-    $collab = az rest --method GET --url "$collabArmUrl`?api-version=$armApiVersion" --resource $armEndpoint -o json | ConvertFrom-Json
+    $collab = dotnet run --project $mgmtProject -- collaborations get $collabName | ConvertFrom-Json
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] provisioningState: $($collab.properties.provisioningState)"
     Start-Sleep -Seconds 60
 } while ($collab.properties.provisioningState -notin @("Succeeded", "Failed"))
@@ -308,22 +326,21 @@ do {
 ### 2.3 Enable Analytics Workload
 
 ```powershell
-$enableBody = @{ workloadType = "Analytics" } | ConvertTo-Json
-$bodyPath = Join-Path $PWD.Path "body.json"
-[System.IO.File]::WriteAllText($bodyPath, $enableBody)
-az rest --method POST `
-    --url "$collabArmUrl/enableWorkload?api-version=$armApiVersion" `
-    --resource $armEndpoint `
-    --headers "Content-Type=application/json" `
-    --body "@$bodyPath"
+dotnet run --project $mgmtProject -- collaborations enable-workload `
+    $collabName `
+    --workload-type AnalyticsStrict
 ```
 
-**Runtime**: ~7 minutes. Poll until the workload endpoint is populated:
+> The SDK enum value is `AnalyticsStrict` (the wire-string `"Analytics"` used
+> by the raw ARM call maps to this member on the current SDK build).
+
+**Runtime**: ~7 minutes. The CLI awaits the LRO and prints the refreshed
+collaboration. To poll explicitly while it runs:
 
 ```powershell
 do {
-    $collab = az rest --method GET --url "$collabArmUrl`?api-version=$armApiVersion" --resource $armEndpoint -o json | ConvertFrom-Json
-    $wl = $collab.properties.workloads | Where-Object { $_.workloadType -eq "Analytics" }
+    $collab = dotnet run --project $mgmtProject -- collaborations get $collabName | ConvertFrom-Json
+    $wl = $collab.properties.workloads | Where-Object { $_.workloadType -eq "AnalyticsStrict" -or $_.workloadType -eq "Analytics" }
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] provisioningState: $($collab.properties.provisioningState) | workload endpoint: $($wl.endpoint)"
     Start-Sleep -Seconds 30
 } while (-not $wl.endpoint -and $collab.properties.provisioningState -ne "Failed")
@@ -333,7 +350,7 @@ Then wait for `healthState` to become `Ok`:
 
 ```powershell
 do {
-    $collab = az rest --method GET --url "$collabArmUrl`?api-version=$armApiVersion" --resource $armEndpoint -o json | ConvertFrom-Json
+    $collab = dotnet run --project $mgmtProject -- collaborations get $collabName | ConvertFrom-Json
     Write-Host "[$(Get-Date -Format 'HH:mm:ss')] healthState: $($collab.properties.health.healthState)"
     if ($collab.properties.health.healthState -ne "Ok" -and $collab.properties.health.healthIssues) {
         $collab.properties.health.healthIssues | ForEach-Object { Write-Host "  Issue: $($_ | ConvertTo-Json -Compress)" }
@@ -353,22 +370,18 @@ do {
 ```powershell
 # Add Northwind
 $collaboratorEmail = "<northwind-email>"
-$addBody = @{ collaborator = @{ userIdentifier = $collaboratorEmail } } | ConvertTo-Json
-$bodyPath = Join-Path $PWD.Path "body.json"
-[System.IO.File]::WriteAllText($bodyPath, $addBody)
-az rest --method POST `
-    --url "$collabArmUrl/addCollaborator?api-version=$armApiVersion" `
-    --resource $armEndpoint `
-    --headers "Content-Type=application/json" `
-    --body "@$bodyPath"
+
+dotnet run --project $mgmtProject -- collaborations add-collaborator `
+    $collabName `
+    --user $collaboratorEmail
 ```
 
-> **IMPORTANT**: The body requires **camelCase** keys (`collaborator`, `userIdentifier`).
-> We use `[System.IO.File]::WriteAllText()` to write body files (avoids BOM encoding issues).
+> The CLI handles the request body shape internally — no `body.json` to
+> manage and no encoding pitfalls.
 
 **Verify**:
 ```powershell
-az rest --method GET --url "$collabArmUrl`?api-version=$armApiVersion" --resource $armEndpoint -o json
+dotnet run --project $mgmtProject -- collaborations get $collabName
 ```
 
 ---
@@ -749,8 +762,7 @@ $result | ConvertTo-Json -Depth 10
 > collaboration health for pod-level or capacity issues:
 >
 > ```powershell
-> az rest --method GET --resource $armEndpoint `
->     --url "$collabArmUrl`?api-version=$armApiVersion" `
+> dotnet run --project $mgmtProject -- collaborations get $collabName `
 >     | ConvertFrom-Json | % { $_.properties.health } | ConvertTo-Json -Depth 5
 > ```
 >
@@ -808,14 +820,13 @@ Auto-detects SSE/CPK mode from metadata. Pass `-JobId` to filter to a specific r
 ### 12.1 Get Readonly Kubeconfig
 
 ```powershell
-$kc = az rest --method POST `
-    --url "$collabArmUrl/getReadonlyKubeConfig`?api-version=$armApiVersion" `
-    --resource $armEndpoint -o json | ConvertFrom-Json
-
-$bytes = [Convert]::FromBase64String($kc.kubeconfig)
-[System.Text.Encoding]::UTF8.GetString($bytes) |
-    Out-File "./readonly.kubeconfig" -Encoding utf8
+dotnet run --project $mgmtProject -- collaborations get-readonly-kubeconfig `
+    $collabName `
+    --out "./readonly.kubeconfig"
 ```
+
+> The CLI fetches the kubeconfig, base64-decodes it, and writes the
+> resulting UTF-8 file to the path given by `--out`.
 
 ### 12.2 Open Grafana Dashboard
 
@@ -977,18 +988,26 @@ Aliases (`collabs-list`, `queries-run`, …) and command flags
 (`--list-collaborations`, `--run-query`, …) map to the same verbs — see
 `dotnet run --project ./packages/sample/AnalyticsFrontendSample.csproj -- --help` for the full list.
 
-### ARM API (still via `az rest`)
+### ARM API (via `cleanroom-mgmt` SDK CLI)
 
-Base: `https://management.azure.com`
-API version: `2026-04-30-preview`
+Project: `./packages/mgmt-sample/CleanRoomMgmtSample.csproj`
+SDK: `Azure.ResourceManager.CleanRoom`
 
-| Operation | Method | URL |
-|---|---|---|
-| Create collaboration | PUT | `.../providers/Microsoft.CleanRoom/Collaborations/{name}` |
-| Show collaboration | GET | `.../providers/Microsoft.CleanRoom/Collaborations/{name}` |
-| Enable workload | POST | `.../Collaborations/{name}/enableWorkload` |
-| Add collaborator | POST | `.../Collaborations/{name}/addCollaborator` |
-| Get readonly kubeconfig | POST | `.../Collaborations/{name}/getReadonlyKubeConfig` |
+| Verb | Subverb | Args | Notes |
+|---|---|---|---|
+| `collaborations` | `create` | `<collaborationName> --location --resource-location [--collaborator]*` | LRO; ~25 min |
+| `collaborations` | `get` | `<collaborationName>` | |
+| `collaborations` | `list` | (uses `$env:AZURE_RESOURCE_GROUP` or `--resource-group`) | |
+| `collaborations` | `delete` | `<collaborationName>` | LRO |
+| `collaborations` | `enable-workload` | `<collaborationName> --workload-type AnalyticsStrict` | LRO; ~7 min |
+| `collaborations` | `add-collaborator` | `<collaborationName> (--user <email> \| --object-id <oid> [--tenant-id <tenantId>])` | LRO |
+| `collaborations` | `pause` / `resume` | `<collaborationName>` | LRO |
+| `collaborations` | `recover` | `<collaborationName> [--force]` | LRO |
+| `collaborations` | `get-readonly-kubeconfig` | `<collaborationName> --out <file>` | Writes decoded kubeconfig |
+| `consortia` | `create` / `get` / `list` / `delete` | (consortium-level operations) | LRO where applicable |
+
+Run `dotnet run --project ./packages/mgmt-sample/CleanRoomMgmtSample.csproj -- --help`
+for the full list and per-verb flags.
 
 ---
 
@@ -999,14 +1018,9 @@ API version: `2026-04-30-preview`
 If the collaboration becomes unresponsive (e.g., `ContractNotFound`, frontend errors on all operations):
 
 ```powershell
-$recoverBody = @{ forceRecover = $true } | ConvertTo-Json
-$bodyPath = Join-Path $PWD.Path "body.json"
-[System.IO.File]::WriteAllText($bodyPath, $recoverBody)
-az rest --method POST `
-    --url "$collabArmUrl/recover?api-version=$armApiVersion" `
-    --resource $armEndpoint `
-    --headers "Content-Type=application/json" `
-    --body "@$bodyPath"
+dotnet run --project $mgmtProject -- collaborations recover `
+    $collabName `
+    --force
 ```
 
 > Last-resort operation. Resets internal state. Existing datasets and queries
@@ -1015,9 +1029,7 @@ az rest --method POST `
 ### Delete Collaboration
 
 ```powershell
-az rest --method DELETE `
-    --url "$collabArmUrl`?api-version=$armApiVersion" `
-    --resource $armEndpoint
+dotnet run --project $mgmtProject -- collaborations delete $collabName
 ```
 
 > Permanently deletes the collaboration and all associated resources.
