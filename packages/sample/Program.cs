@@ -100,73 +100,73 @@ internal static class CliApp
         return new CollaborationClient(endpoint, options);
     }
 
-    private static Task<Response> DispatchAsync(CollaborationClient c, CliArgs a)
+    private static Task<Response> DispatchAsync(CollaborationClient client, CliArgs a)
     {
         // Verb routing table: maps verb tokens to SDK calls.
         // Style: <resource> <action> [positional args...]
         return (a.Verb, a.SubVerb) switch
         {
             ("collaborations", "list") =>
-                c.GetGetsAsync(a.GetBool("--include-deleted"), null),
+                client.GetGetsAsync(a.GetBool("--include-deleted"), null),
             ("collaborations", "get") =>
-                c.IdGetAsync(a.Required(0, "collaborationId"), a.GetBool("--include-deleted"), null),
+                client.IdGetAsync(a.Required(0, "collaborationId"), a.GetBool("--include-deleted"), null),
             ("collaborations", "report") =>
-                c.ReportGetAsync(a.Required(0, "collaborationId"), null),
+                client.ReportGetAsync(a.Required(0, "collaborationId"), null),
 
             ("analytics", "get") =>
-                c.AnalyticsGetAsync(a.Required(0, "collaborationId"), null),
+                client.AnalyticsGetAsync(a.Required(0, "collaborationId"), null),
             ("analytics", "skr-policy") =>
-                c.AnalyticsSkrPolicyGetAsync(a.Required(0, "collaborationId"), a.Required(1, "kid"), null),
+                client.AnalyticsSkrPolicyGetAsync(a.Required(0, "collaborationId"), a.Required(1, "kid"), null),
 
             ("oidc", "issuer-info") =>
-                c.OidcIssuerInfoGetAsync(a.Required(0, "collaborationId"), null),
+                client.OidcIssuerInfoGetAsync(a.Required(0, "collaborationId"), null),
             ("oidc", "set-issuer-url") =>
-                c.OidcSetIssuerUrlPostAsync(a.Required(0, "collaborationId"), a.RequireBody(), null),
+                client.OidcSetIssuerUrlPostAsync(a.Required(0, "collaborationId"), a.RequireBody(), null),
             ("oidc", "keys") =>
-                c.OidcKeysGetAsync(a.Required(0, "collaborationId"), null),
+                client.OidcKeysGetAsync(a.Required(0, "collaborationId"), null),
 
             ("invitations", "list") =>
-                c.InvitationsGetAsync(a.Required(0, "collaborationId"), a.GetBool("--include-deleted"), null),
+                client.InvitationsGetAsync(a.Required(0, "collaborationId"), a.GetBool("--include-deleted"), null),
             ("invitations", "get") =>
-                c.InvitationIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "invitationId"), null),
+                client.InvitationIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "invitationId"), null),
             ("invitations", "accept") =>
-                c.InvitationIdAcceptPostAsync(a.Required(0, "collaborationId"), a.Required(1, "invitationId"), null),
+                client.InvitationIdAcceptPostAsync(a.Required(0, "collaborationId"), a.Required(1, "invitationId"), null),
 
             ("datasets", "list") =>
-                c.AnalyticsDatasetsListGetAsync(a.Required(0, "collaborationId"), null),
+                client.AnalyticsDatasetsListGetAsync(a.Required(0, "collaborationId"), null),
             ("datasets", "get") =>
-                c.AnalyticsDatasetsDocumentIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
+                client.AnalyticsDatasetsDocumentIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
             ("datasets", "publish") =>
-                c.AnalyticsDatasetsDocumentIdPublishPostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
+                client.AnalyticsDatasetsDocumentIdPublishPostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
             ("datasets", "queries") =>
-                c.AnalyticsDatasetsDocumentIdQueriesGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
+                client.AnalyticsDatasetsDocumentIdQueriesGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
 
             ("consent", "get") =>
-                c.ConsentDocumentIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
+                client.ConsentDocumentIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
             ("consent", "put") =>
-                c.ConsentDocumentIdPutAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
+                client.ConsentDocumentIdPutAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
 
             ("queries", "list") =>
-                c.AnalyticsQueriesListGetAsync(a.Required(0, "collaborationId"), null),
+                client.AnalyticsQueriesListGetAsync(a.Required(0, "collaborationId"), null),
             ("queries", "get") =>
-                c.AnalyticsQueriesDocumentIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
+                client.AnalyticsQueriesDocumentIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
             ("queries", "publish") =>
-                c.AnalyticsQueriesDocumentIdPublishPostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
+                client.AnalyticsQueriesDocumentIdPublishPostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
             ("queries", "vote") =>
-                c.AnalyticsQueriesDocumentIdVotePostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
+                client.AnalyticsQueriesDocumentIdVotePostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
             ("queries", "run") =>
-                c.AnalyticsQueriesDocumentIdRunPostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
+                client.AnalyticsQueriesDocumentIdRunPostAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), a.RequireBody(), null),
             ("queries", "runs") =>
-                c.AnalyticsQueriesDocumentIdRunsGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
+                client.AnalyticsQueriesDocumentIdRunsGetAsync(a.Required(0, "collaborationId"), a.Required(1, "documentId"), null),
 
             ("runs", "get") =>
-                c.AnalyticsRunsJobIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "jobId"), null),
+                client.AnalyticsRunsJobIdGetAsync(a.Required(0, "collaborationId"), a.Required(1, "jobId"), null),
 
             ("secrets", "put") =>
-                c.AnalyticsSecretsSecretNamePutAsync(a.Required(0, "collaborationId"), a.Required(1, "secretName"), a.RequireBody(), null),
+                client.AnalyticsSecretsSecretNamePutAsync(a.Required(0, "collaborationId"), a.Required(1, "secretName"), a.RequireBody(), null),
 
             ("audit-events", "list") =>
-                c.AnalyticsAuditeventsGetAsync(
+                client.AnalyticsAuditeventsGetAsync(
                     a.Required(0, "collaborationId"),
                     a.GetOption("--from"),
                     a.GetOption("--to"),
