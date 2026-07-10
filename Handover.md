@@ -74,7 +74,7 @@ Notes:
 - Current authored skill source path:
   `tools/Azure.Mcp.Tools.ManagedCleanroom/skills/managedcleanroom-agent-support/SKILL.md`
 - Destination skills repository: https://github.com/ShreyaSangwa/GitHub-Copilot-for-Azure/tree/feature/azure-managed-cleanroom-skill/plugin/skills/azure-managed-cleanroom
-- Skills PR: not yet raised
+- Skills PR (open): https://github.com/ShreyaSangwa/GitHub-Copilot-for-Azure/pull/1
 
 ---
 
@@ -88,6 +88,8 @@ Notes:
    Scope: Adds two `get` commands (management plane + data plane).
 3. PR 3 (fork): https://github.com/ShreyaSangwa/mcp/pull/3  
    Scope: Full Managed Cleanroom command surface.
+4. PR 4 (skills repo, open): https://github.com/ShreyaSangwa/GitHub-Copilot-for-Azure/pull/1  
+   Scope: Adds `azure-managed-cleanroom` skill, references, helper scripts, and tests.
 
 ## 4.2 PR Closure Checklist (applies to all three)
 
@@ -205,7 +207,7 @@ Confirm:
 ## Phase 4: Skills PR
 
 1. Confirm destination skills repo.
-2. Raise skills PR.
+2. Skills PR raised: https://github.com/ShreyaSangwa/GitHub-Copilot-for-Azure/pull/1.
 3. Address review comments.
 4. Merge.
 
@@ -255,7 +257,7 @@ Live test recording guide:
 - [ ] Update MCP package references.
 - [ ] Build + unit test + live test pass.
 - [ ] Merge MCP PRs.
-- [ ] Raise and merge skills PR.
+- [ ] Merge skills PR (#1 in GitHub-Copilot-for-Azure).
 - [ ] Complete final E2E validation.
 - [ ] Update this document with final package versions, owners, and merged PR links.
 
@@ -273,6 +275,7 @@ Live test recording guide:
 - Working fork: https://github.com/ShreyaSangwa/mcp
 - MCP server toolset path in fork: https://github.com/ShreyaSangwa/mcp/tree/ManagedCleanrooms/tools/Azure.Mcp.Tools.ManagedCleanroom
 - Skills repo path: https://github.com/ShreyaSangwa/GitHub-Copilot-for-Azure/tree/feature/azure-managed-cleanroom-skill/plugin/skills/azure-managed-cleanroom
+- Skills PR (open): https://github.com/ShreyaSangwa/GitHub-Copilot-for-Azure/pull/1
 - Toolset docs: https://github.com/microsoft/mcp/tree/main/tools/Azure.Mcp.Tools.ManagedCleanroom/docs
 - Recorded tests guide: https://github.com/microsoft/mcp/blob/main/docs/recorded-tests.md
 - Contribution guide: https://github.com/microsoft/mcp/blob/main/CONTRIBUTING.md
